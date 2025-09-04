@@ -1,4 +1,4 @@
-const canvas = document.getElementById("galaxy");
+    const canvas = document.getElementById("galaxy");
     const ctx = canvas.getContext("2d");
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -6,9 +6,14 @@ const canvas = document.getElementById("galaxy");
     const defaultSettings = {
       gravite: 5000,
       forceRepulse: 10000,
+      forceAttract: 10000,
       nbEtoiles: 1500,
       opaciteTrainée: 0.3,
-      tailleEtoiles: 1.5
+      tailleEtoiles: 1.5,
+      simulationSpeed: 1,
+      starsPerClick: 10,
+      enableCentralGravity: true,
+      enableStarGravity: false
     };
 
     const settings = { ...defaultSettings };
@@ -23,18 +28,20 @@ const canvas = document.getElementById("galaxy");
         this.color = color;
       }
       update() {
-        const dx = canvas.width / 2 - this.x;
-        const dy = canvas.height / 2 - this.y;
-        const distSq = dx * dx + dy * dy;
-        const dist = Math.sqrt(distSq);
-        const G = settings.gravite;
+        if (settings.enableCentralGravity) {
+          const dx = canvas.width / 2 - this.x;
+          const dy = canvas.height / 2 - this.y;
+          const distSq = dx * dx + dy * dy;
+          const dist = Math.sqrt(distSq);
+          const G = settings.gravite;
 
-        const force = G / distSq;
-        const ax = (dx / dist) * force;
-        const ay = (dy / dist) * force;
+          const force = (G / distSq) * settings.simulationSpeed;
+          const ax = (dx / dist) * force;
+          const ay = (dy / dist) * force;
 
-        this.vx += ax;
-        this.vy += ay;
+          this.vx += ax;
+          this.vy += ay;
+        }
 
         repulsors.forEach(rep => {
           const rx = rep.x - this.x;
@@ -42,7 +49,7 @@ const canvas = document.getElementById("galaxy");
           const rDistSq = rx * rx + ry * ry;
           const rDist = Math.sqrt(rDistSq);
           if (rDist > 5) {
-            const rForce = rep.strength / rDistSq;
+            const rForce = (rep.strength / rDistSq) * settings.simulationSpeed;
             const rAx = -(rx / rDist) * rForce;
             const rAy = -(ry / rDist) * rForce;
             this.vx += rAx;
@@ -50,8 +57,40 @@ const canvas = document.getElementById("galaxy");
           }
         });
 
-        this.x += this.vx;
-        this.y += this.vy;
+        attractors.forEach(att => {
+          const ax = att.x - this.x;
+          const ay = att.y - this.y;
+          const aDistSq = ax * ax + ay * ay;
+          const aDist = Math.sqrt(aDistSq);
+          if (aDist > 5) {
+            const aForce = (att.strength / aDistSq) * settings.simulationSpeed;
+            const aAx = (ax / aDist) * aForce;
+            const aAy = (ay / aDist) * aForce;
+            this.vx += aAx;
+            this.vy += aAy;
+          }
+        });
+
+        if (settings.enableStarGravity) {
+          stars.forEach(other => {
+            if (other !== this) {
+              const dx = other.x - this.x;
+              const dy = other.y - this.y;
+              const distSq = dx * dx + dy * dy;
+              const dist = Math.sqrt(distSq);
+              if (dist > 2) {
+                const sForce = (settings.gravite / distSq) * settings.simulationSpeed;
+                const sAx = (dx / dist) * sForce;
+                const sAy = (dy / dist) * sForce;
+                this.vx += sAx;
+                this.vy += sAy;
+              }
+            }
+          });
+        }
+
+        this.x += this.vx * settings.simulationSpeed;
+        this.y += this.vy * settings.simulationSpeed;
       }
       draw() {
         ctx.beginPath();
@@ -76,8 +115,24 @@ const canvas = document.getElementById("galaxy");
       }
     }
 
+    class Attractor {
+      constructor(x, y, strength = settings.forceAttract) {
+        this.x = x;
+        this.y = y;
+        this.strength = strength;
+      }
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 6, 0, Math.PI * 2);
+        ctx.strokeStyle = "blue";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
     let stars = [];
     let repulsors = [];
+    let attractors = [];
     const colors = ["#ffffff", "#ffe9c4", "#d4fbff", "#ffd1dc"];
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
@@ -96,12 +151,16 @@ const canvas = document.getElementById("galaxy");
         y = centerY + Math.sin(angle) * radius;
       }
 
-      let distCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
-      let speed = Math.sqrt(settings.gravite / distCenter);
+      let vx = 0;
+      let vy = 0;
 
-      let angleToCenter = Math.atan2(y - centerY, x - centerX);
-      let vx = -Math.sin(angleToCenter) * speed;
-      let vy = Math.cos(angleToCenter) * speed;
+      if (settings.enableCentralGravity) {
+        let distCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+        let speed = Math.sqrt(settings.gravite / distCenter);
+        let angleToCenter = Math.atan2(y - centerY, x - centerX);
+        vx = -Math.sin(angleToCenter) * speed;
+        vy = Math.cos(angleToCenter) * speed;
+      }
 
       let size = Math.random() * settings.tailleEtoiles + 0.5;
       let color = colors[Math.floor(Math.random() * colors.length)];
@@ -112,6 +171,7 @@ const canvas = document.getElementById("galaxy");
     function initStars(nb = settings.nbEtoiles) {
       stars = [];
       repulsors = [];
+      attractors = [];
       for (let i = 0; i < nb; i++) {
         createStar();
       }
@@ -122,10 +182,32 @@ const canvas = document.getElementById("galaxy");
     canvas.addEventListener("click", (e) => {
       if (e.shiftKey) {
         repulsors.push(new Repulsor(e.clientX, e.clientY, settings.forceRepulse));
+      } else if (e.ctrlKey) {
+        attractors.push(new Attractor(e.clientX, e.clientY, settings.forceAttract));
       } else {
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < settings.starsPerClick; i++) {
           createStar(e.clientX, e.clientY);
         }
+      }
+    });
+
+    canvas.addEventListener("mousedown", (e) => {
+      if (e.button === 1) { 
+        const mx = e.clientX;
+        const my = e.clientY;
+        const radius = 10;
+
+        repulsors = repulsors.filter(rep => {
+          const dx = rep.x - mx;
+          const dy = rep.y - my;
+          return Math.sqrt(dx*dx + dy*dy) > radius;
+        });
+
+        attractors = attractors.filter(att => {
+          const dx = att.x - mx;
+          const dy = att.y - my;
+          return Math.sqrt(dx*dx + dy*dy) > radius;
+        });
       }
     });
 
@@ -137,6 +219,7 @@ const canvas = document.getElementById("galaxy");
         star.draw();
       });
       repulsors.forEach(rep => rep.draw());
+      attractors.forEach(att => att.draw());
       requestAnimationFrame(animate);
     }
 
@@ -147,12 +230,18 @@ const canvas = document.getElementById("galaxy");
       canvas.height = window.innerHeight;
     });
 
+    // GUI
     const gui = new dat.GUI();
     gui.add(settings, 'gravite', 1000, 20000).name('Gravity');
     gui.add(settings, 'forceRepulse', 1000, 50000).name('Repulsive force');
+    gui.add(settings, 'forceAttract', 1000, 50000).name('Attractive force');
     gui.add(settings, 'opaciteTrainée', 0.01, 1).step(0.01).name('Opacity trail');
     gui.add(settings, 'tailleEtoiles', 0.5, 5).step(0.1).name('Average star size');
     gui.add(settings, 'nbEtoiles', 100, 5000).step(10).name('Number of stars');
+    gui.add(settings, 'simulationSpeed', 0.1, 5).step(0.1).name('Simulation speed');
+    gui.add(settings, 'starsPerClick', 1, 100).step(1).name('Stars per click');
+    gui.add(settings, 'enableCentralGravity').name('Enable central gravity');
+    gui.add(settings, 'enableStarGravity').name('Stars exert gravity');
 
     gui.add({
       reset: () => {
